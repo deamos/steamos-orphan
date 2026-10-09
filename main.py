@@ -1,57 +1,79 @@
 import os
-
-# The decky plugin module is located at decky-loader/plugin
-# For easy intellisense checkout the decky-loader code repo
-# and add the `decky-loader/plugin/imports` path to `python.analysis.extraPaths` in `.vscode/settings.json`
-import decky
+import sys
 import asyncio
+from typing import Dict, Any, List
+
+# Ensure py_modules is in the python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+py_modules_dir = os.path.join(current_dir, "py_modules")
+if py_modules_dir not in sys.path:
+    sys.path.insert(0, py_modules_dir)
+
+import decky
+from orphan_scanner import OrphanScanner
 
 class Plugin:
-    # A normal method. It can be called from the TypeScript side using @decky/api.
-    async def add(self, left: int, right: int) -> int:
-        return left + right
-
-    async def long_running(self):
-        await asyncio.sleep(15)
-        # Passing through a bunch of random data, just as an example
-        await decky.emit("timer_event", "Hello from the backend!", True, 2)
-
-    # Asyncio-compatible long-running code, executed in a task when the plugin is loaded
     async def _main(self):
-        self.loop = asyncio.get_event_loop()
-        decky.logger.info("Hello World!")
+        decky.logger.info("SteamOS Orphan Finder plugin starting up...")
+        self.scanner = OrphanScanner()
+        decky.logger.info("SteamOS Orphan Finder plugin ready.")
 
-    # Function called first during the unload process, utilize this to handle your plugin being stopped, but not
-    # completely removed
     async def _unload(self):
-        decky.logger.info("Goodnight World!")
-        pass
+        decky.logger.info("SteamOS Orphan Finder plugin unloading...")
 
-    # Function called after `_unload` during uninstall, utilize this to clean up processes and other remnants of your
-    # plugin that may remain on the system
-    async def _uninstall(self):
-        decky.logger.info("Goodbye World!")
-        pass
+    async def scan_orphans(self) -> Dict[str, Any]:
+        """
+        Scan for orphaned folders in Steam library common directories.
+        Runs in background thread pool to keep the event loop non-blocking.
+        """
+        try:
+            decky.logger.info("Starting scan for orphaned folders...")
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self.scanner.scan)
+            decky.logger.info(
+                f"Scan complete: {result['total_orphan_count']} orphan(s) found, "
+                f"{result['total_orphaned_formatted']} total size."
+            )
+            return result
+        except Exception as e:
+            decky.logger.error(f"Error during scan_orphans: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "orphans": [],
+                "total_orphan_count": 0,
+                "total_orphaned_bytes": 0,
+                "total_orphaned_formatted": "0 B",
+                "installed_game_count": 0,
+                "installed_games": [],
+                "libraries": []
+            }
 
-    async def start_timer(self):
-        self.loop.create_task(self.long_running())
+    async def delete_orphan(self, path: str) -> Dict[str, Any]:
+        """
+        Safely delete an orphaned folder.
+        Verifies that target is inside steamapps/common and not an installed game.
+        """
+        try:
+            decky.logger.info(f"Received request to delete orphan: {path}")
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self.scanner.delete_orphan, path)
+            decky.logger.info(f"Deletion result for {path}: {result}")
+            return result
+        except Exception as e:
+            decky.logger.error(f"Error during delete_orphan: {e}")
+            return {"success": False, "error": str(e)}
 
-    # Migrations that should be performed before entering `_main()`.
-    async def _migration(self):
-        decky.logger.info("Migrating")
-        # Here's a migration example for logs:
-        # - `~/.config/decky-template/template.log` will be migrated to `decky.decky_LOG_DIR/template.log`
-        decky.migrate_logs(os.path.join(decky.DECKY_USER_HOME,
-                                               ".config", "decky-template", "template.log"))
-        # Here's a migration example for settings:
-        # - `~/homebrew/settings/template.json` is migrated to `decky.decky_SETTINGS_DIR/template.json`
-        # - `~/.config/decky-template/` all files and directories under this root are migrated to `decky.decky_SETTINGS_DIR/`
-        decky.migrate_settings(
-            os.path.join(decky.DECKY_HOME, "settings", "template.json"),
-            os.path.join(decky.DECKY_USER_HOME, ".config", "decky-template"))
-        # Here's a migration example for runtime data:
-        # - `~/homebrew/template/` all files and directories under this root are migrated to `decky.decky_RUNTIME_DIR/`
-        # - `~/.local/share/decky-template/` all files and directories under this root are migrated to `decky.decky_RUNTIME_DIR/`
-        decky.migrate_runtime(
-            os.path.join(decky.DECKY_HOME, "template"),
-            os.path.join(decky.DECKY_USER_HOME, ".local", "share", "decky-template"))
+    async def delete_orphans(self, paths: List[str]) -> Dict[str, Any]:
+        """
+        Safely delete a batch of orphaned folders.
+        """
+        try:
+            decky.logger.info(f"Received request to delete {len(paths)} orphan(s)")
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, self.scanner.delete_orphans, paths)
+            decky.logger.info(f"Batch deletion result: {result}")
+            return result
+        except Exception as e:
+            decky.logger.error(f"Error during delete_orphans: {e}")
+            return {"success": False, "error": str(e), "deleted_count": 0}
