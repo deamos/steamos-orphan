@@ -1,6 +1,6 @@
 {
   "name": "steamos-orphan",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SteamOS Decky plugin to detect and manage orphaned folders in Steam library common directories.",
   "type": "module",
   "scripts": {

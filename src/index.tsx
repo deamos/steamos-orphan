@@ -692,9 +692,14 @@ function Content() {
   const selectedCount = filteredOrphans.filter((o) => selectedPaths.has(o.path)).length;
 
   return (
-    <div style={{ width: "100%", boxSizing: "border-box" }}>
+    <div style={{ width: "100%", boxSizing: "border-box", paddingTop: "16px" }}>
       {/* High-visibility Gamepad Focus & Button Highlight Styles */}
       <style>{`
+        /* Top spacing & scroll clearance for refresh button and interactive elements */
+        button, [tabindex] {
+          scroll-margin-top: 16px !important;
+        }
+
         /* Focusable Card Row for Gamepad Selection */
         .orphan-item-row:focus,
         .orphan-item-row.gpfocus,
